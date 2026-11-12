@@ -12,7 +12,7 @@ h1{margin:0 0 4px;font-size:21px}p{margin:0 0 10px;font-size:14px;line-height:1.
 <div id="ui"><h1>CrimeLens XR</h1>
 <p>Cold case walkthrough. Drag to look around. Click a gold number to inspect a clue. In a headset, pinch instead.</p>
 <button onclick="setSpot(0)">Close view</button><button onclick="setSpot(1)">Middle view</button><button onclick="setSpot(2)">Far view</button><br>
-<button id="vr" hidden>Enter VR</button><button id="mr" hidden>Enter MR</button></div>
+<button onclick="openMenu()">Ask the detective</button><button id="vr" hidden>Enter VR</button><button id="mr" hidden>Enter MR</button></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const SPOTS=[
@@ -26,6 +26,9 @@ const CLUES={
  4:['Clue 4: Blood','Only a small patch of blood on the grass. A deep neck wound should bleed much more, so she may have been killed somewhere else.'],
  5:['Clue 5: Tyre marks','Tyre marks with crisp edges, not washed away by the rain that fell from 1:00 to 2:30 AM. The car came after the rain.']};
 const REVEAL=['Cold case link found','The number 4471 on the pendant matches a missing-person file from three years ago. The field was a staged scene. This murder is linked to an older case.'];
+const QS=['What does this clue tell us?','Which clues contradict each other?','Was she killed in this field?','What should we check next?'];
+const FALLBACK=[null,'Three things do not fit: the stopped watch (11:47 PM) against the later time of death, the small amount of blood against a deep neck wound, and two different shoe prints.','Probably not. There is very little blood for a deep wound, and the tyre marks are crisp after the rain. The field looks like a staged scene.','Check the pendant number 4471 against old missing-person files, send the cigarette for DNA testing, and compare the second shoe print with known suspects.'];
+let lastClue=0;
 const seen=new Set();
 function tex(w,h,f){const c=document.createElement('canvas');c.width=w;c.height=h;f(c.getContext('2d'),w,h);return new THREE.CanvasTexture(c)}
 function wrap(g,s,x,y,mw,lh){let l='';for(const w of s.split(' ')){const n=l?l+' '+w:w;if(g.measureText(n).width>mw&&l){g.fillText(l,x,y);y+=lh;l=w}else l=n}g.fillText(l,x,y)}
@@ -42,6 +45,15 @@ function showNote(title,body,red){note.material.map=tex(880,496,(g,w,h)=>{g.fill
  g.fillStyle='#8fa3b8';g.font='24px Georgia';g.fillText('Clues inspected: '+seen.size+' of 5. Pinch this card to close.',28,h-26)});note.material.needsUpdate=true;
  const p=new THREE.Vector3(),d=new THREE.Vector3();camera.getWorldPosition(p);camera.getWorldDirection(d);d.y=Math.max(Math.min(d.y,0.3),-0.3);d.normalize();
  note.position.copy(p).addScaledVector(d,1.3);note.lookAt(p);note.visible=true;if(!pickables.includes(note))pickables.unshift(note)}
+const menu=new THREE.Group();menu.visible=false;scene.add(menu);
+QS.forEach((q,i)=>{const b=new THREE.Mesh(new THREE.PlaneGeometry(1.0,0.12),new THREE.MeshBasicMaterial({map:tex(800,96,(g,w,h)=>{g.fillStyle='#142234';g.fillRect(0,0,w,h);g.strokeStyle='#f2b84b';g.lineWidth=4;g.strokeRect(2,2,w-4,h-4);g.fillStyle='#f2b84b';g.font='bold 34px Georgia';g.textAlign='center';g.fillText(q,w/2,60)})}));b.position.y=0.2-i*0.15;b.userData.q=i;menu.add(b)});
+function openMenu(){const p=new THREE.Vector3(),d=new THREE.Vector3();camera.getWorldPosition(p);camera.getWorldDirection(d);d.y=Math.max(Math.min(d.y,0.3),-0.3);d.normalize();
+ menu.position.copy(p).addScaledVector(d,1.2);menu.lookAt(p);menu.visible=true;note.visible=false;menu.children.forEach(c=>{if(!pickables.includes(c))pickables.unshift(c)})}
+async function ask(i){menu.visible=false;if(i===0&&!lastClue){showNote('Detective assistant','Inspect a clue first: click a gold number, then ask me about it.');return}
+ showNote('Detective assistant','Thinking...');let ans,title;
+ try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q:i,clue:lastClue})});if(!r.ok)throw 0;const j=await r.json();ans=j.answer;title='Detective assistant (AI)'}
+ catch(e){ans=i===0?CLUES[lastClue][1]:FALLBACK[i];title='Detective assistant (built-in notes)'}
+ showNote(title,ans)}
 function setSpot(i){const L=loaded[i];if(!L)return;if(spotGroup)scene.remove(spotGroup);spotGroup=new THREE.Group();pickables=[note];note.visible=false;
  const W=H*L.aspect,len=Math.min(W/RAD,Math.PI*1.9),t0=Math.PI-len/2;
  const t=L.tex;t.wrapS=THREE.RepeatWrapping;t.repeat.x=-1;t.offset.x=1;
@@ -52,13 +64,15 @@ function setSpot(i){const L=loaded[i];if(!L)return;if(spotGroup)scene.remove(spo
  // in-scene spot buttons for headset
  SPOTS.forEach((sp,j)=>{const b=new THREE.Mesh(new THREE.PlaneGeometry(0.5,0.12),new THREE.MeshBasicMaterial({map:tex(300,72,(g,w,h)=>{g.fillStyle=j===i?'#f2b84b':'#142234';g.fillRect(0,0,w,h);g.fillStyle=j===i?'#1a1a1a':'#f2b84b';g.font='bold 30px Georgia';g.textAlign='center';g.fillText(sp.name,w/2,46)})}));
   b.position.set(-0.55+j*0.55,-0.75,-1.4);b.userData.spot=j;spotGroup.add(b);pickables.push(b)});
+ const ab=new THREE.Mesh(new THREE.PlaneGeometry(0.62,0.12),new THREE.MeshBasicMaterial({map:tex(372,72,(g,w,h)=>{g.fillStyle='#f2b84b';g.fillRect(0,0,w,h);g.fillStyle='#1a1a1a';g.font='bold 28px Georgia';g.textAlign='center';g.fillText('Ask the detective',w/2,46)})}));
+ ab.position.set(1.2,-0.75,-1.4);ab.userData.ask=true;spotGroup.add(ab);pickables.push(ab);
  scene.add(spotGroup)}
 Promise.all(SPOTS.map(s=>new Promise(r=>new THREE.TextureLoader().load(s.src,t=>r({tex:t,w:t.image.width,h:t.image.height,aspect:t.image.width/t.image.height}))))).then(a=>{a.forEach((x,i)=>loaded[i]=x);setSpot(0)});
 // input
 const rc=new THREE.Raycaster();
-function pick(o,d){rc.set(o,d);const h=rc.intersectObjects(pickables)[0];if(!h)return;const u=h.object.userData;
- if(u.note){note.visible=false;return}if(u.spot!==undefined){setSpot(u.spot);return}
- if(u.clue){seen.add(u.clue);showNote(CLUES[u.clue][0],CLUES[u.clue][1]);if(seen.size===5&&!pick.done){pick.done=true;setTimeout(()=>showNote(REVEAL[0],REVEAL[1],true),2500)}}}
+function pick(o,d){rc.set(o,d);const h=rc.intersectObjects(pickables.filter(o=>o.visible&&(!o.parent||o.parent.visible!==false)))[0];if(!h)return;const u=h.object.userData;
+ if(u.note){note.visible=false;return}if(u.ask){openMenu();return}if(u.q!==undefined){ask(u.q);return}if(u.spot!==undefined){setSpot(u.spot);return}
+ if(u.clue){lastClue=u.clue;seen.add(u.clue);showNote(CLUES[u.clue][0],CLUES[u.clue][1]);if(seen.size===5&&!pick.done){pick.done=true;setTimeout(()=>showNote(REVEAL[0],REVEAL[1],true),2500)}}}
 [0,1].forEach(i=>{const c=R.xr.getController(i);c.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,0,-3)]),new THREE.LineBasicMaterial({color:0xf2b84b})));
  c.addEventListener('selectstart',()=>{const o=new THREE.Vector3(),q=new THREE.Quaternion();c.getWorldPosition(o);c.getWorldQuaternion(q);pick(o,new THREE.Vector3(0,0,-1).applyQuaternion(q))});scene.add(c)});
 let drag=false,lx=0,ly=0,mv=0;const mouse=new THREE.Vector2();
